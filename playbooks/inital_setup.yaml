@@ -1,0 +1,35 @@
+- name: Initial setup of Home Lab - Turing Pi 2 cluster
+  hosts: nodes
+  become: yes
+  vars_prompt:
+    - name: node_password
+      prompt: "Enter the password for the Ubuntu nodes"
+      private: yes
+  vars:
+    ansible_ssh_pass: "{{ node_password }}"
+  tasks:
+    - name: Deploy SSH keys
+      authorized_key:
+        user: ubuntu
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        state: present
+
+    - name: Update package cache and upgrade all packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Set static IP with Netplan
+      template:
+        src: templates/netplan.j2
+        dest: /etc/netplan/01-netcfg.yaml
+        mode: '0644'
+      notify: Apply netplan
+
+    - name: Reboot nodes to apply static IPs
+      reboot:
+        reboot_timeout: 300
+
+  handlers:
+    - name: Apply netplan
+      command: netplan apply
