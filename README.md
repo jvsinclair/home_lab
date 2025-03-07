@@ -9,7 +9,7 @@ This repository contains Ansible playbooks to configure a Turing Pi 2 cluster wi
   - Node 1: Turing RK1 (16GB) - Initial DHCP IP: 10.42.0.145
   - Node 2: Turing RK1 (16GB) - Initial DHCP IP: 10.42.0.138
   - Node 3: Raspberry Pi CM410800 - Initial DHCP IP: 10.42.0.60
-  - All nodes run Ubuntu Server 24.04 with login `ubuntu` and password `ubuntu`.
+  - All nodes run Ubuntu Server 24.04 with login `ubuntu` and password prompted. (only used for inital setup)
 - **SSH Keys**: Generate an SSH key pair on the control machine (`ssh-keygen -t rsa -b 4096`) if not already present.
 
 ## Setup Instructions
@@ -27,7 +27,7 @@ This repository contains Ansible playbooks to configure a Turing Pi 2 cluster wi
    ```
 
 3. **Run Initial Setup**
-   This playbook deploys SSH keys, updates packages, sets static IPs (10.42.0.11–10.42.0.13), and reboots the nodes:
+   This playbook configures the nodes with SSH keys, updates packages, and sets static IPs. When running it, you will be prompted to enter the password for the nodes:
    ```bash
    ansible-playbook -i inventory/dhcp.ini playbooks/initial_setup.yml
    ```
