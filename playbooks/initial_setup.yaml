@@ -1,13 +1,18 @@
-- name: Initial setup of Home Lab - Turing Pi 2 cluster
+- name: Initial setup of Turing Pi 2 cluster nodes
   hosts: nodes
   become: yes
   vars_prompt:
     - name: node_password
-      prompt: "Enter the password for the Ubuntu nodes"
+      prompt: "Enter the password for the nodes"
       private: yes
   vars:
     ansible_ssh_pass: "{{ node_password }}"
+    ansible_become_pass: "{{ node_password }}"
   tasks:
+    - name: Set hostname for each node
+      hostname:
+        name: "{{ hostname }}"
+      
     - name: Deploy SSH keys
       authorized_key:
         user: ubuntu
@@ -26,7 +31,7 @@
         mode: '0644'
       notify: Apply netplan
 
-    - name: Reboot nodes to apply static IPs
+    - name: Reboot nodes to apply static IPs and hostname
       reboot:
         reboot_timeout: 300
 

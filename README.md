@@ -17,12 +17,12 @@ This repository contains Ansible playbooks to configure a Turing Pi 2 cluster wi
 1. **Clone the Repository**
    ```bash
    git clone <repository-url>
-   cd turing-pi-cluster
+   cd home_lab
 
 2. **Install Dependencies on the Control Machine**
    ```bash
    sudo apt update
-   sudo apt install git ansible
+   sudo apt install git ansible sshpass
    ansible-galaxy collection install kubernetes.core
    ```
 
