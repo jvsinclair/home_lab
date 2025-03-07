@@ -1,4 +1,4 @@
-# Home Lab -Turing Pi 2 Cluster Setup with K3s and Kubernetes Dashboard
+# Home Lab - Turing Pi 2 Cluster Setup with K3s and Kubernetes Dashboard
 
 This repository contains Ansible playbooks to configure a Turing Pi 2 cluster with three compute modules running Ubuntu Server 24.04. The setup deploys SSH keys, updates the nodes, sets static IPs, installs K3s (a lightweight Kubernetes distribution), and deploys the Kubernetes Dashboard for cluster management.
 
