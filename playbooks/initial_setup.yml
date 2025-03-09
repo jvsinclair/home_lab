@@ -1,9 +1,9 @@
-- name: Initial setup of Turing Pi 2 cluster nodes
+- name: Initial setup ofHome Lab - Turing Pi 2 cluster
   hosts: nodes
   become: yes
   vars_prompt:
     - name: node_password
-      prompt: "Enter the password for the nodes"
+      prompt: "Enter the SSH password for the nodes"
       private: yes
   vars:
     ansible_ssh_pass: "{{ node_password }}"
@@ -12,12 +12,23 @@
     - name: Set hostname for each node
       hostname:
         name: "{{ hostname }}"
-      
+
     - name: Deploy SSH keys
       authorized_key:
         user: ubuntu
         key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
         state: present
+
+    - name: Configure passwordless sudo for ubuntu user
+      lineinfile:
+        path: /etc/sudoers.d/90-ubuntu-nopasswd
+        line: "ubuntu ALL=(ALL) NOPASSWD:ALL"
+        create: yes
+        mode: '0440'
+        owner: root
+        group: root
+        validate: 'visudo -cf %s'
+      become: yes
 
     - name: Update package cache and upgrade all packages
       apt:

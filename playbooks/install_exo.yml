@@ -1,0 +1,93 @@
+---
+- name: Install and setup exo repository
+  hosts: server  # Targeting node1 from your inventory
+  become: yes   # Enables sudo privileges
+
+  vars:
+    exo_repo_url: "https://github.com/exo-explore/exo.git"
+    install_dir: "/opt/exo"
+    python_version: "3.12"
+
+  tasks:
+    - name: Ensure software-properties-common is installed
+      package:
+        name: software-properties-common
+        state: present
+
+    - name: Add deadsnakes PPA
+      apt_repository:
+        repo: ppa:deadsnakes/ppa
+        state: present
+
+    - name: Update apt package list
+      apt:
+        update_cache: yes
+
+    - name: Install Python 3.12 and other dependencies
+      package:
+        name:
+          - python3.12
+          - python3.12-venv
+          - python3.12-dev
+          - git
+          - build-essential
+        state: present
+
+    - name: Create installation directory
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Clone exo repository
+      git:
+        repo: "{{ exo_repo_url }}"
+        dest: "{{ install_dir }}"
+        version: main
+        update: yes
+
+    - name: Create virtual environment
+      command: python3.12 -m venv {{ install_dir }}/venv
+      args:
+        creates: "{{ install_dir }}/venv/bin/activate"
+
+    - name: Upgrade pip in virtual environment
+      pip:
+        name: pip
+        state: latest
+        virtualenv: "{{ install_dir }}/venv"
+
+    - name: Install exo package in editable mode
+      pip:
+        name: "{{ install_dir }}"
+        extra_args: "-e"
+        virtualenv: "{{ install_dir }}/venv"
+        state: present
+
+    - name: Set directory permissions
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+        recurse: yes
+
+    # Optional: Uncomment to create and enable systemd service
+    # - name: Create exo systemd service
+    #   template:
+    #     src: templates/exo.service.j2
+    #     dest: /etc/systemd/system/exo.service
+    #     owner: root
+    #     group: root
+    #     mode: '0644'
+    #   when: ansible_service_mgr == "systemd"
+    #
+    # - name: Enable and start exo service
+    #   systemd:
+    #     name: exo
+    #     enabled: yes
+    #     state: started
+    #   when: ansible_service_mgr == "systemd"

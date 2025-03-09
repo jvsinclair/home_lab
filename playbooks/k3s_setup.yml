@@ -1,41 +1,60 @@
 - name: Set up K3s Kubernetes cluster
   hosts: k3s_cluster
   become: yes
+  vars_prompt:
+    - name: node_password
+      prompt: "Enter the password for the nodes"
+      private: yes
+  vars:
+    ansible_ssh_pass: "{{ node_password }}"
+    ansible_become_pass: "{{ node_password }}"
   tasks:
     - name: Wait for nodes to be reachable with static IPs
       wait_for_connection:
         timeout: 300
 
-    - name: Install K3s on server (node1)
+    - name: Install K3s on server
       shell: curl -sfL https://get.k3s.io | sh -
       args:
         creates: /usr/local/bin/k3s
-      when: inventory_hostname == 'node1'
+      when: "'server' in group_names"
 
     - name: Get K3s join token from server
       command: cat /var/lib/rancher/k3s/server/node-token
       register: k3s_token
-      when: inventory_hostname == 'node1'
+      when: "'server' in group_names"
 
     - name: Copy K3s token to local machine
       copy:
-        content: "{{ hostvars['node1'].k3s_token.stdout }}"
+        content: "{{ k3s_token.stdout }}"
         dest: /tmp/k3s_token
       delegate_to: localhost
-      when: inventory_hostname == 'node1'
+      when: "'server' in group_names and k3s_token.stdout is defined"
+
+    - name: Ensure k3s-agent is stopped and removed
+      shell: |
+        systemctl stop k3s-agent || true
+        /usr/local/bin/k3s-agent-uninstall.sh || true
+        rm -rf /etc/rancher /var/lib/rancher /var/lib/k3s
+      when: "'agent' in group_names"
 
     - name: Install K3s on agents and join cluster
-      shell: curl -sfL https://get.k3s.io | K3S_URL=https://{{ hostvars['node1'].ansible_host }}:6443 K3S_TOKEN={{ hostvars['node1'].k3s_token.stdout }} sh -
-      args:
-        creates: /usr/local/bin/k3s
-      when: inventory_hostname in ['node2', 'node3']
+      shell: curl -sfL https://get.k3s.io | K3S_URL=https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:6443 K3S_TOKEN={{ hostvars[groups['server'][0]]['k3s_token']['stdout'] }} sh -
+      when: "'agent' in group_names"
+
+    - name: Ensure k3s-agent service is running
+      service:
+        name: k3s-agent
+        state: started
+        enabled: yes
+      when: "'agent' in group_names"
 
     - name: Fetch kubeconfig from server
       fetch:
         src: /etc/rancher/k3s/k3s.yaml
-        dest: ./kubeconfig
+        dest: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
         flat: yes
-      when: inventory_hostname == 'node1'
+      when: "'server' in group_names"
 
 - name: Install Helm on control machine
   hosts: localhost
@@ -61,24 +80,24 @@
     - name: Add Kubernetes Dashboard Helm repository
       command: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
       environment:
-        KUBECONFIG: ./kubeconfig
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Update Helm repositories
       command: helm repo update
       environment:
-        KUBECONFIG: ./kubeconfig
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Install Kubernetes Dashboard
       command: helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --namespace kubernetes-dashboard --create-namespace
       environment:
-        KUBECONFIG: ./kubeconfig
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Create admin user for Dashboard
       kubernetes.core.k8s:
         state: present
         definition: "{{ lookup('file', 'files/dashboard-admin.yaml') }}"
         environment:
-          KUBECONFIG: ./kubeconfig
+          KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Expose Dashboard on NodePort
       kubernetes.core.k8s:
@@ -98,14 +117,14 @@
             selector:
               k8s-app: kubernetes-dashboard
         environment:
-          KUBECONFIG: ./kubeconfig
+          KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Get Dashboard token
       shell: kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}') | grep 'token:' | awk '{print $2}'
       register: dashboard_token
       environment:
-        KUBECONFIG: ./kubeconfig
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
 
     - name: Display Dashboard access information
       debug:
-        msg: "Access the Dashboard at https://{{ hostvars['node1'].ansible_host }}:30000 with token: {{ dashboard_token.stdout }}"
+        msg: "Access the Dashboard at https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:30000 with token: {{ dashboard_token.stdout }}"

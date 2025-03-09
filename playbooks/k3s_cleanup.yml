@@ -1,0 +1,46 @@
+- name: Clean up K3s installation
+  hosts: k3s_cluster
+  become: yes
+  tasks:
+    - name: Stop K3s service on server
+      systemd:
+        name: k3s
+        state: stopped
+      when: "'server' in group_names"
+
+    - name: Stop K3s agent on workers
+      systemd:
+        name: k3s-agent
+        state: stopped
+      when: "'agent' in group_names"
+
+    - name: Uninstall K3s on server
+      shell: /usr/local/bin/k3s-uninstall.sh
+      when: "'server' in group_names"
+      ignore_errors: yes
+
+    - name: Uninstall K3s agent on workers
+      shell: /usr/local/bin/k3s-agent-uninstall.sh
+      when: "'agent' in group_names"
+      ignore_errors: yes
+
+    - name: Remove K3s data directory
+      file:
+        path: /var/lib/rancher/k3s
+        state: absent
+
+    - name: Remove K3s configuration directory
+      file:
+        path: /etc/rancher
+        state: absent
+
+    - name: Remove K3s network interfaces
+      shell: |
+        for iface in cni0 flannel.1; do
+          ip link delete $iface || true
+        done
+      ignore_errors: yes
+
+    - name: Reboot nodes to ensure cleanup
+      reboot:
+        reboot_timeout: 300

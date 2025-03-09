@@ -1,0 +1,57 @@
+---
+- name: Cleanup exo repository installation
+  hosts: server  # Targeting node1 from your inventory
+  become: yes  # Enables sudo privileges
+  
+  vars:
+    install_dir: "/opt/exo"
+    python_version: "3.12"  # Should match the version used in installation
+    
+  tasks:
+    # Stop and disable the exo service (if it exists)
+    - name: Stop and disable exo service
+      systemd:
+        name: exo
+        state: stopped
+        enabled: no
+      when: ansible_service_mgr == "systemd"
+      ignore_errors: yes  # Continue even if the service doesn't exist
+    
+    # Remove the exo systemd service file
+    - name: Remove exo systemd service file
+      file:
+        path: /etc/systemd/system/exo.service
+        state: absent
+      when: ansible_service_mgr == "systemd"
+    
+    # Reload systemd daemon to reflect service removal
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+      when: ansible_service_mgr == "systemd"
+    
+    # Remove the installation directory
+    - name: Remove exo installation directory
+      file:
+        path: "{{ install_dir }}"
+        state: absent
+    
+    # Remove Python dependencies (if installed globally)
+    - name: Remove Python requirements
+      pip:
+        requirements: "{{ install_dir }}/requirements.txt"
+        state: absent
+        executable: /usr/bin/pip{{ python_version }}"
+      ignore_errors: yes  # Continue even if requirements.txt is missing
+    
+    # Remove system packages (optional, only if you want to remove them)
+    - name: Remove system packages
+      package:
+        name:
+          - git
+          - python{{ python_version }}
+          - python{{ python_version }}-pip
+          - python{{ python_version }}-dev
+          - build-essential
+        state: absent
+      ignore_errors: yes  # Continue even if some packages are still needed by other applications

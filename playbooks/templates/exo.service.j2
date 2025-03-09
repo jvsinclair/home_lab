@@ -1,0 +1,13 @@
+[Unit]
+Description=Exo Application Service
+After=network.target
+
+[Service]
+User={{ ansible_user }}
+Group={{ ansible_user }}
+WorkingDirectory={{ install_dir }}
+ExecStart={{ install_dir }}/venv/bin/exo
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
