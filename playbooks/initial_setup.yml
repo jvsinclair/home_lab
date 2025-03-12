@@ -1,4 +1,71 @@
-- name: Initial setup ofHome Lab - Turing Pi 2 cluster
+- name: Configure BMC for Turing Pi 2 cluster
+  hosts: localhost
+  connection: local
+  vars_prompt:
+    - name: bmc_password
+      prompt: "Enter the SSH password for the BMC (default: turing)"
+      private: yes
+  vars:
+    bmc_host: "turingpi.local"  # Use mDNS hostname; replace with DHCP IP if needed
+    bmc_user: "root"
+    #bmc_fixed_ip: "192.168.10.10"
+    #bmc_netmask: "255.255.255.0"
+    #bmc_gateway: "192.168.10.1"
+    #bmc_nameservers: ["192.168.2.246", "1.1.1.1", "8.8.8.8"]
+  tasks:
+    - name: Wait for BMC to be reachable
+      wait_for:
+        host: "{{ bmc_host }}"
+        port: 22
+        state: started
+        timeout: 300
+      vars:
+        ansible_user: "{{ bmc_user }}"
+        ansible_ssh_pass: "{{ bmc_password }}"
+
+#    - name: Set fixed IP for BMC
+#      shell: |
+#        echo -e "auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet static\naddress {{ bmc_fixed_ip }}\nnetmask {{ bmc_netmask }}\ngateway {{ bmc_gateway }}\n" > /etc/network/interfaces
+#        echo -e "nameserver {{ bmc_nameservers | join('\nnameserver ') }}" > /etc/resolv.conf
+#        echo "turingpi.local" > /etc/hostname
+#        hostname turingpi.local
+#        /etc/init.d/networking restart
+#      args:
+#        executable: /bin/bash
+#      vars:
+#        ansible_host: "{{ bmc_host }}"
+#        ansible_user: "{{ bmc_user }}"
+#        ansible_ssh_pass: "{{ bmc_password }}"
+
+    - name: Set static IP with interfaces for BMC
+      template:
+        src: templates/bmc.interfaces.j2
+        dest: /etc/network/interfaces
+        mode: '0644'
+      notify: Apply interfaces
+
+    - name: Reset network to load static IP
+      shell: /etc/init.d/S40network restart
+
+    - name: Wait for BMC to come back online with fixed IP
+      wait_for:
+        host: "{{ bmc_ip }}"
+        port: 22
+        state: started
+        timeout: 300
+      vars:
+        ansible_user: "{{ bmc_user }}"
+        ansible_ssh_pass: "{{ bmc_password }}"
+
+    - name: Power on all nodes via BMC
+      #shell: "ssh {{ bmc_user }}@{{ bmc_fixed_ip }} 'for i in 1 2 3; do curl -s --location --request POST \"http://127.0.0.1/api/bmc?opt=set&type=power&node$i=1\"; done'"
+      # tpi cli seems to be more reliabel. 
+      ansible.builtin.command: for i in 1 2 3 4; do tpi power -n $i on ; done
+      delegate_to: localhost
+      register: power_on_result
+      changed_when: power_on_result.rc == 0
+
+- name: Initial setup of Home Lab - Turing Pi 2 cluster nodes
   hosts: nodes
   become: yes
   vars_prompt:
@@ -7,8 +74,15 @@
       private: yes
   vars:
     ansible_ssh_pass: "{{ node_password }}"
-    ansible_become_pass: "{{ node_password }}"
+    #bmc_fixed_ip: "192.168.10.10"
+    #bmc_user: "root"
+    #bmc_password: "{{ node_password }}"  # Assuming same password for simplicity; adjust if different
   tasks:
+
+    - name: Wait for all nodes to be online
+      wait_for_connection:
+        timeout: 300
+
     - name: Set hostname for each node
       hostname:
         name: "{{ hostname }}"
@@ -28,12 +102,26 @@
         owner: root
         group: root
         validate: 'visudo -cf %s'
-      become: yes
 
     - name: Update package cache and upgrade all packages
       apt:
         update_cache: yes
         upgrade: dist
+
+    - name: Install tools and other dependencies
+      package:
+        name:
+          - btop
+          - htop
+          - iftop
+          - iotop
+          - nvtop
+          - avahi-daemon #the avahi and mdns libraries make sure that the nodes are discoverable on the local network
+          - avahi-discover 
+          - avahi-utils 
+          - libnss-mdns 
+          - mdns-scan
+        state: present
 
     - name: Set static IP with Netplan
       template:

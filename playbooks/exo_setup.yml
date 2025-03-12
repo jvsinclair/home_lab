@@ -31,6 +31,9 @@
           - python3.12-dev
           - git
           - build-essential
+          - libdrm-dev  # Added to provide xf86drm.h for pyamdgpuinfo
+          - libgl1-mesa-glx # Added fix `ImportError: libGL.so.1`
+          - clang # added to fix an error when loading Llama models in tinychat
         state: present
 
     - name: Create installation directory

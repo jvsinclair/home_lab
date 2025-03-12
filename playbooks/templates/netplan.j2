@@ -8,6 +8,6 @@ network:
         - {{ static_ip }}/24
       routes:
         - to: default
-          via: 192.168.10.1
+          via: {{ gateway }}
       nameservers:
-        addresses: [192.168.2.246, 8.8.8.8, 8.8.4.4]
+        addresses: [{{ nameservers }}]
