@@ -67,5 +67,6 @@ This repository contains Ansible playbooks to configure a Turing Pi 2 cluster wi
    - Open the URL in a browser, accept the self-signed certificate warning, and log in with the token.
 
 6. **Exo Setup**
-TODO: I was able to get it to run on the CM4 but running into issues with the Turing RK1. [Tinygrad](https://docs.tinygrad.org/) (which [Exo](https://github.com/exo-explore/exo) is built on) is not recodnising the hardware and setting it to unknown instead of arm. Will update once I figure it out.
+NOTE: I was able to get it to run on the CM4 but running into issues with the Turing RK1. [Tinygrad](https://docs.tinygrad.org/) (which [Exo](https://github.com/exo-explore/exo) is built on) is not recodnising the hardware and setting it to unknown instead of arm. Will update once I figure it out.
+UPDATE March 13th 2025: there is a bug in exo / tinygrad that is causing exo to not run on RK1 and its crasing alot on CM4. for testing on set to localhos and run on an 13th gen Intel NUC and it was slow but worked. I looked into the specific issue and it looks liek Clang doenst like these embeded systems. not going to try Exo any more for now
 
