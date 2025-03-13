@@ -22,7 +22,7 @@ This repository contains Ansible playbooks to configure a Turing Pi 2 cluster wi
 2. **Install Dependencies on the Control Machine (I call mine Proxy since its a jump server for the cluster and has 2 nics)**
    ```bash
    sudo apt update
-   sudo apt install git ansible sshpass curl 
+   sudo apt install git ansible sshpass curl python3-pip python3-kubernetes
    ansible-galaxy collection install kubernetes.core
    ```
 

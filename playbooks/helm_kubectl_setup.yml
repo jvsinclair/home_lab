@@ -1,0 +1,37 @@
+- name: Install Helm and kubectl on control machine
+  hosts: localhost
+  connection: local
+  become: yes
+  vars_prompt:
+    - name: node_password
+      prompt: "Enter the password for the local sudo"
+      private: yes
+  vars:
+    ansible_become_pass: "{{ node_password }}"
+  tasks:
+    - name: Check if kubectl is installed
+      command: kubectl version --client
+      register: kubectl_version
+      ignore_errors: yes
+
+    - name: Install kubectl #NOTE: Assumes that host is amd64 based. If you are runnign on arm or other platform this needsw to be changed
+      when: kubectl_version.rc != 0
+      shell: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" 
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      args:
+        creates: /usr/local/bin/kubectl
+
+    - name: Check if Helm is installed
+      command: helm version
+      register: helm_version
+      ignore_errors: yes
+
+    - name: Install Helm
+      when: helm_version.rc != 0
+      shell: |
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh
+      args:
+        creates: /usr/local/bin/helm

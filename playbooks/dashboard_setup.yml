@@ -1,0 +1,76 @@
+- name: Set up Kubernetes Dashboard using Helm
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Add Kubernetes Dashboard Helm repository
+      command: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Update Helm repositories
+      command: helm repo update
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Install Kubernetes Dashboard
+      command: helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --namespace kubernetes-dashboard --create-namespace
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Create admin user for Dashboard
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('file', 'files/dashboard-admin.yml') }}"
+        kubeconfig: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Create admin user token secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: admin-user-token
+            namespace: kubernetes-dashboard
+            annotations:
+              kubernetes.io/service-account.name: admin-user
+          type: kubernetes.io/service-account-token
+        kubeconfig: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Wait for Kong pod to be ready
+      command: kubectl wait --for=condition=Ready pod -l app=kubernetes-dashboard-kong -n kubernetes-dashboard --timeout=300s
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
+      register: wait_result
+      until: wait_result.rc == 0
+      retries: 3
+      delay: 10
+
+    - name: Expose Dashboard on NodePort
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: kubernetes-dashboard-nodeport
+            namespace: kubernetes-dashboard
+          spec:
+            type: NodePort
+            ports:
+            - port: 443
+              targetPort: 8443
+              nodePort: 30000
+            selector:
+              app: kubernetes-dashboard-kong
+        kubeconfig: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Get Dashboard token
+      shell: kubectl -n kubernetes-dashboard describe secret admin-user-token | grep 'token:' | awk '{print $2}'
+      register: dashboard_token
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
+
+    - name: Display Dashboard access information
+      debug:
+        msg: "Access the Dashboard at https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:30000 with token: {{ dashboard_token.stdout }}"

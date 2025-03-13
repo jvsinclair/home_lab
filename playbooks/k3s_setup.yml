@@ -1,4 +1,6 @@
-- name: Set up K3s Kubernetes cluster
+## use the indivitual playbooks installed
+
+- name: Set up K3s Kubernetes cluster (DEPRICATED)
   hosts: k3s_cluster
   become: yes
   vars_prompt:
@@ -6,7 +8,7 @@
       prompt: "Enter the password for the nodes"
       private: yes
   vars:
-    ansible_ssh_pass: "{{ node_password }}"
+#    ansible_ssh_pass: "{{ node_password }}"
     ansible_become_pass: "{{ node_password }}"
   tasks:
     - name: Wait for nodes to be reachable with static IPs
@@ -56,9 +58,24 @@
         flat: yes
       when: "'server' in group_names"
 
+    - name: Update kubeconfig server address
+      replace:
+        path: "{{ playbook_dir }}/../kubeconfig"
+        regexp: 'server: https://127.0.0.1:6443'
+        replace: "server: https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:6443"
+      delegate_to: localhost
+
 - name: Install Helm on control machine
   hosts: localhost
   connection: local
+  become: yes
+  vars_prompt:
+    - name: node_password
+      prompt: "Enter the password for the local sudo"
+      private: yes
+  vars:
+#    ansible_ssh_pass: "{{ node_password }}"
+    ansible_become_pass: "{{ node_password }}"
   tasks:
     - name: Check if Helm is installed
       command: helm version
@@ -80,24 +97,23 @@
     - name: Add Kubernetes Dashboard Helm repository
       command: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
       environment:
-        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  
 
     - name: Update Helm repositories
       command: helm repo update
       environment:
-        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  
 
     - name: Install Kubernetes Dashboard
       command: helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --namespace kubernetes-dashboard --create-namespace
       environment:
-        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  
 
     - name: Create admin user for Dashboard
       kubernetes.core.k8s:
         state: present
-        definition: "{{ lookup('file', 'files/dashboard-admin.yaml') }}"
-        environment:
-          KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+        definition: "{{ lookup('file', 'files/dashboard-admin.yml') }}"
+        kubeconfig: "{{ playbook_dir }}/../kubeconfig"  
 
     - name: Expose Dashboard on NodePort
       kubernetes.core.k8s:
@@ -106,7 +122,7 @@
           apiVersion: v1
           kind: Service
           metadata:
-            name: kubernetes-dashboard
+            name: kubernetes-dashboard-nodeport
             namespace: kubernetes-dashboard
           spec:
             type: NodePort
@@ -115,15 +131,14 @@
               targetPort: 8443
               nodePort: 30000
             selector:
-              k8s-app: kubernetes-dashboard
-        environment:
-          KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+              k8s-app: kubernetes-dashboard-kong
+        kubeconfig: "{{ playbook_dir }}/../kubeconfig"
 
     - name: Get Dashboard token
       shell: kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}') | grep 'token:' | awk '{print $2}'
       register: dashboard_token
       environment:
-        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"  # Changed to project root
+        KUBECONFIG: "{{ playbook_dir }}/../kubeconfig"
 
     - name: Display Dashboard access information
       debug:

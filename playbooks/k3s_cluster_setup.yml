@@ -1,0 +1,63 @@
+- name: Set up K3s Kubernetes cluster
+  hosts: k3s_cluster
+  become: yes
+  vars_prompt:
+    - name: node_password
+      prompt: "Enter the password for the nodes"
+      private: yes
+  vars:
+    ansible_become_pass: "{{ node_password }}"
+  tasks:
+    - name: Wait for nodes to be reachable with static IPs
+      wait_for_connection:
+        timeout: 300
+
+    - name: Install K3s on server
+      shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /usr/local/bin/k3s
+      when: "'server' in group_names"
+
+    - name: Get K3s join token from server
+      command: cat /var/lib/rancher/k3s/server/node-token
+      register: k3s_token
+      when: "'server' in group_names"
+
+    - name: Copy K3s token to local machine
+      copy:
+        content: "{{ k3s_token.stdout }}"
+        dest: /tmp/k3s_token
+      delegate_to: localhost
+      when: "'server' in group_names and k3s_token.stdout is defined"
+
+    - name: Ensure k3s-agent is stopped and removed
+      shell: |
+        systemctl stop k3s-agent || true
+        /usr/local/bin/k3s-agent-uninstall.sh || true
+        rm -rf /etc/rancher /var/lib/rancher /var/lib/k3s
+      when: "'agent' in group_names"
+
+    - name: Install K3s on agents and join cluster
+      shell: curl -sfL https://get.k3s.io | K3S_URL=https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:6443 K3S_TOKEN={{ hostvars[groups['server'][0]]['k3s_token']['stdout'] }} sh -
+      when: "'agent' in group_names"
+
+    - name: Ensure k3s-agent service is running
+      service:
+        name: k3s-agent
+        state: started
+        enabled: yes
+      when: "'agent' in group_names"
+
+    - name: Fetch kubeconfig from server
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../kubeconfig"
+        flat: yes
+      when: "'server' in group_names"
+
+    - name: Update kubeconfig server address
+      replace:
+        path: "{{ playbook_dir }}/../kubeconfig"
+        regexp: 'server: https://127.0.0.1:6443'
+        replace: "server: https://{{ hostvars[groups['server'][0]]['ansible_host'] }}:6443"
+      delegate_to: localhost
