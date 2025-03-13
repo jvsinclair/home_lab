@@ -10,4 +10,4 @@ network:
         - to: default
           via: {{ gateway }}
       nameservers:
-        addresses: [{{ nameservers }}]
+        addresses: {{ nameservers }}

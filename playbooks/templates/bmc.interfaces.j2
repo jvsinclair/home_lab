@@ -16,7 +16,7 @@ iface lo inet loopback
 
 auto eth0
 iface eth0 inet static
-  address {{ bmc_ip }}
+  address {{ bmc_fixed_ip }}
   netmask {{ bmc_netmask }}
   gateway {{ bmc_gateway }}
   pre-up /etc/network/nfs_check

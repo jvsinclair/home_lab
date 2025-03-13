@@ -1,72 +1,60 @@
+---
 - name: Configure BMC for Turing Pi 2 cluster
   hosts: localhost
   connection: local
   vars_prompt:
     - name: bmc_password
-      prompt: "Enter the SSH password for the BMC (default: turing)"
+      prompt: "Enter the SSH password for the BMC"
       private: yes
   vars:
-    bmc_host: "turingpi.local"  # Use mDNS hostname; replace with DHCP IP if needed
-    bmc_user: "root"
-    #bmc_fixed_ip: "192.168.10.10"
-    #bmc_netmask: "255.255.255.0"
-    #bmc_gateway: "192.168.10.1"
-    #bmc_nameservers: ["192.168.2.246", "1.1.1.1", "8.8.8.8"]
+    bmc_host: "{{ hostvars['bmc']['ansible_host'] }}"
+    bmc_hostname: "{{ hostvars['bmc']['hostname'] }}"
+    bmc_fixed_ip: "{{ hostvars['bmc']['bmc_ip'] }}"
+    bmc_user: "{{ hostvars['bmc']['bmc_user'] }}"
+    bmc_netmask: "{{ hostvars['bmc']['bmc_netmask'] }}"
+    bmc_gateway: "{{ hostvars['bmc']['bmc_gateway'] }}"
+    bmc_nameservers: "{{ hostvars['bmc']['bmc_nameservers'] }}"
   tasks:
-    - name: Wait for BMC to be reachable
-      wait_for:
-        host: "{{ bmc_host }}"
-        port: 22
-        state: started
-        timeout: 300
-      vars:
-        ansible_user: "{{ bmc_user }}"
-        ansible_ssh_pass: "{{ bmc_password }}"
+    - name: Ensure .ssh keys exists on the device
+      #raw: "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
+      shell: ssh {{ bmc_user }}@{{ bmc_host }} 'mkdir -p /root/.ssh && echo '{{ lookup('file', '~/.ssh/id_rsa.pub') }}' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
+      delegate_to: "{{ bmc_host }}"
 
-#    - name: Set fixed IP for BMC
-#      shell: |
-#        echo -e "auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet static\naddress {{ bmc_fixed_ip }}\nnetmask {{ bmc_netmask }}\ngateway {{ bmc_gateway }}\n" > /etc/network/interfaces
-#        echo -e "nameserver {{ bmc_nameservers | join('\nnameserver ') }}" > /etc/resolv.conf
-#        echo "turingpi.local" > /etc/hostname
-#        hostname turingpi.local
-#        /etc/init.d/networking restart
-#      args:
-#        executable: /bin/bash
-#      vars:
-#        ansible_host: "{{ bmc_host }}"
-#        ansible_user: "{{ bmc_user }}"
-#        ansible_ssh_pass: "{{ bmc_password }}"
-
-    - name: Set static IP with interfaces for BMC
+    - name: Render interfaces template locally
       template:
         src: templates/bmc.interfaces.j2
-        dest: /etc/network/interfaces
-        mode: '0644'
-      notify: Apply interfaces
+        dest: /tmp/interfaces
 
-    - name: Reset network to load static IP
-      shell: /etc/init.d/S40network restart
+    - name: Set fixed IP for BMC via SSH using template
+      shell: |
+        scp /tmp/interfaces {{ bmc_user }}@{{ bmc_host }}:/etc/network/interfaces
+        ssh {{ bmc_user }}@{{ bmc_host }} 'echo -e "{{ (bmc_nameservers[1:-1] | regex_replace('^\\[(.*)\\]$', '\\1') | split(',')) | map('regex_replace', '^', 'nameserver ') | join('\n') }}" > /etc/resolv.conf'
+        ssh {{ bmc_user }}@{{ bmc_host }} 'echo "{{ bmc_hostname }} " > /etc/hostname'
+        ssh {{ bmc_user }}@{{ bmc_host }} 'hostname {{ bmc_hostname }}'
+        ssh -f {{ bmc_user }}@{{ bmc_host }} 'sleep 3; reboot'
+      args:
+        executable: /bin/bash
+      register: set_ip_result
 
-    - name: Wait for BMC to come back online with fixed IP
+    - name: Wait for BMC to come back online at fixed IP
       wait_for:
-        host: "{{ bmc_ip }}"
+        host: "{{ bmc_fixed_ip }}"
         port: 22
         state: started
         timeout: 300
+        delay: 15
       vars:
         ansible_user: "{{ bmc_user }}"
         ansible_ssh_pass: "{{ bmc_password }}"
 
-    - name: Power on all nodes via BMC
-      #shell: "ssh {{ bmc_user }}@{{ bmc_fixed_ip }} 'for i in 1 2 3; do curl -s --location --request POST \"http://127.0.0.1/api/bmc?opt=set&type=power&node$i=1\"; done'"
-      # tpi cli seems to be more reliabel. 
-      ansible.builtin.command: for i in 1 2 3 4; do tpi power -n $i on ; done
-      delegate_to: localhost
+    - name: Power on all nodes via BMC using tpi command
+      shell: ssh {{ bmc_user }}@{{ bmc_fixed_ip }} 'for i in 1 2 3 4; do tpi power -n $i on ; done'
       register: power_on_result
       changed_when: power_on_result.rc == 0
 
 - name: Initial setup of Home Lab - Turing Pi 2 cluster nodes
   hosts: nodes
+  gather_facts: no
   become: yes
   vars_prompt:
     - name: node_password
@@ -74,14 +62,17 @@
       private: yes
   vars:
     ansible_ssh_pass: "{{ node_password }}"
-    #bmc_fixed_ip: "192.168.10.10"
-    #bmc_user: "root"
-    #bmc_password: "{{ node_password }}"  # Assuming same password for simplicity; adjust if different
-  tasks:
 
-    - name: Wait for all nodes to be online
+  pre_tasks:
+    - name: Wait for nodes to be online
       wait_for_connection:
+        delay: 15
         timeout: 300
+
+  tasks:
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset: all
 
     - name: Set hostname for each node
       hostname:
@@ -89,14 +80,14 @@
 
     - name: Deploy SSH keys
       authorized_key:
-        user: ubuntu
+        user: "{{ ansible_user }}"
         key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
         state: present
 
     - name: Configure passwordless sudo for ubuntu user
       lineinfile:
         path: /etc/sudoers.d/90-ubuntu-nopasswd
-        line: "ubuntu ALL=(ALL) NOPASSWD:ALL"
+        line: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
         create: yes
         mode: '0440'
         owner: root
@@ -107,8 +98,9 @@
       apt:
         update_cache: yes
         upgrade: dist
+      ignore_errors: yes
 
-    - name: Install tools and other dependencies
+    - name: Install monitoring tools and dependencies
       package:
         name:
           - btop
@@ -116,10 +108,15 @@
           - iftop
           - iotop
           - nvtop
-          - avahi-daemon #the avahi and mdns libraries make sure that the nodes are discoverable on the local network
-          - avahi-discover 
-          - avahi-utils 
-          - libnss-mdns 
+        state: present
+
+    - name: Install mDNS and discovery packages # Rasberry PI ubuntu imagesw have this but the RK1 ubuntu does not
+      package:
+        name:
+          - avahi-daemon
+          - avahi-discover
+          - avahi-utils
+          - libnss-mdns
           - mdns-scan
         state: present
 
